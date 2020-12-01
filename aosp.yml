@@ -1,0 +1,116 @@
+---
+- name: Build AOSP Pie 9.0 for Xperia X Compact (kugo)
+  hosts:
+    - novel-dodo
+
+  vars:
+    android_release: android-9.0.0_r46
+  pre_tasks:
+    - name: create directories
+      file:
+        state: directory
+        path: "{{ item }}"
+      with_items:
+        - "{{ ansible_env.HOME }}/.local/bin"
+        - "{{ ansible_env.HOME }}/src"
+        - "{{ ansible_env.HOME }}/src/android"
+
+    - name: install python2
+      package:
+        name: python-pip
+      become: true
+
+    - name: install java
+      package:
+        name: openjdk-8-jdk
+      become: true
+
+    - name: install tools to build android
+      package:
+        name: "{{ item }}"
+      with_items:
+        - m4
+        - zip
+        #- bison
+        #- g++multilib
+        #- git
+        #- gperf
+        #- libxml2-utils
+        #- make
+        #- zlib1g-dev:i386
+        #- liblz4-tool
+        #- libncurses5
+        #- libssl-dev
+        #- bc
+      become: true
+
+    - name: get repo
+      get_url:
+        url: http://commondatastorage.googleapis.com/git-repo-downloads/repo
+        dest: "{{ ansible_env.HOME }}/.local/bin/repo"
+        mode: 0755
+    - name: make repo use python3
+      replace:
+        path: "{{ ansible_env.HOME }}/.local/bin/repo"
+        regexp: "^#!/usr/bin/env python$"
+        replace: "#!/usr/bin/env python3"
+
+    - name: set global git config
+      git_config:
+        scope: global
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+      with_items:
+        - name: user.name
+          value: "Erik Berg"
+        - name: user.email
+          value: "android@slipsprogrammor.no"
+
+  tasks:
+    - name: repo init
+      command: "repo init -u https://android.googlesource.com/platform/manifest -b {{ android_release }}"
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+      args:
+        chdir: "{{ ansible_env.HOME }}/src/android"
+        creates: "{{ ansible_env.HOME }}/src/android/.repo"
+      register: _repo_init
+    - debug:
+        var: _repo_init
+
+    - name: install sonyxperiadev
+      git:
+        repo: https://github.com/sonyxperiadev/local_manifests
+        dest: "{{ ansible_env.HOME }}/src/android/.repo/local_manifests"
+        version: "{{ android_release }}"
+      
+    - name: repo sync
+      command: "repo sync"
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+      args:
+        chdir: "{{ ansible_env.HOME }}/src/android"
+      register: _repo_sync
+    - debug:
+        var: _repo_sync
+
+    - name: repo_update.sh
+      command: "{{ ansible_env.HOME }}/src/android/repo_update.sh"
+      environment:
+        PATH: "{{ ansible_env.HOME }}/.local/bin:{{ ansible_env.PATH }}"
+      args:
+        chdir: "{{ ansible_env.HOME }}/src/android"
+        #creates:
+      register: _repo_update
+    - debug:
+        var: _repo_update
+
+    - name: lunch f5321-eng
+      shell: "source build/envsetup.sh && lunch aosp_f5321-eng && make -j {{ ansible_processor_vcpus }}"
+      args:
+        executable: /bin/bash
+        chdir: "{{ ansible_env.HOME }}/src/android"
+        creates: "{{ ansible_env.HOME }}/src/android/out/target/product/kugo/system.img"
+      register: _lunch
+    - debug:
+        var: _lunch
